@@ -1,0 +1,24 @@
+{
+  "citations": [
+    {
+      "id": 1,
+      "citation": "Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., & Polosukhin, I. (2017). Attention Is All You Need. Advances in Neural Information Processing Systems, 30."
+    },
+    {
+      "id": 2,
+      "citation": "He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep Residual Learning for Image Recognition. Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 770-778. https://doi.org/10.1109/CVPR.2016.90"
+    },
+    {
+      "id": 3,
+      "citation": "Devlin, J., Chang, M. W., Lee, K., & Toutanova, K. (2019). BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding. Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, 4171-4186. https://doi.org/10.18653/v1/N19-1423"
+    },
+    {
+      "id": 4,
+      "citation": "Kingma, D. P., & Ba, J. (2015). Adam: A Method for Stochastic Optimization. International Conference on Learning Representations. https://arxiv.org/abs/1412.6980"
+    },
+    {
+      "id": 5,
+      "citation": "Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning. MIT Press. https://www.deeplearningbook.org/"
+    }
+  ]
+}
