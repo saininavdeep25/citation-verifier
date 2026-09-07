@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from config import (
     AMBIGUITY_MARGIN,
@@ -7,24 +7,69 @@ from config import (
     STRONG_TITLE_THRESHOLD,
 )
 from models.schemas import CandidatePaper, CitationMetadata
+from matching.title_similarity import title_match_details
 from utils.normalization import normalize_doi
+
+
+def _title_comparison(
+    citation: CitationMetadata,
+    candidate: CandidatePaper,
+) -> Optional[Dict[str, Any]]:
+    """
+    Compare citation and candidate titles using the normalized
+    title comparison logic.
+
+    This allows the verifier to distinguish:
+        EXACT
+        FORMATTING_NORMALIZED
+        MINOR_DIFFERENCE
+        SUBSTANTIVE_DIFFERENCE
+    """
+
+    if not citation.title or not candidate.title:
+        return None
+
+    return title_match_details(
+        citation.title,
+        candidate.title,
+    )
 
 
 def _metadata_errors(
     citation: CitationMetadata,
     candidate: CandidatePaper,
 ):
+    """
+    Identify genuine bibliographic metadata mismatches.
+
+    Formatting/extraction-only title differences are NOT treated
+    as metadata errors.
+    """
+
     errors = []
 
+    # ========================================================
     # Title
-    if (
-        citation.title
-        and candidate.title
-        and candidate.title_similarity < 0.90
-    ):
-        errors.append("title")
+    # ========================================================
 
+    if citation.title and candidate.title:
+
+        title_details = _title_comparison(
+            citation,
+            candidate,
+        )
+
+        if (
+            title_details is not None
+            and title_details["match_type"]
+            == "SUBSTANTIVE_DIFFERENCE"
+        ):
+            errors.append("title")
+
+    # ========================================================
     # Authors
+    # ========================================================
+
     if (
         citation.authors
         and candidate.authors
@@ -32,7 +77,10 @@ def _metadata_errors(
     ):
         errors.append("authors")
 
+    # ========================================================
     # Year
+    # ========================================================
+
     if (
         citation.year is not None
         and candidate.year is not None
@@ -40,7 +88,10 @@ def _metadata_errors(
     ):
         errors.append("year")
 
+    # ========================================================
     # Venue
+    # ========================================================
+
     if (
         citation.venue
         and candidate.venue
@@ -88,6 +139,68 @@ def _is_strong_title_match(
     )
 
 
+def _title_explanation(
+    title_comparison: Optional[Dict[str, Any]],
+) -> str:
+    """
+    Generate an explanation specifically for the title match.
+    """
+
+    if not title_comparison:
+        return (
+            "The title could not be compared because title "
+            "metadata was unavailable."
+        )
+
+    match_type = title_comparison["match_type"]
+
+    if match_type == "EXACT":
+        return (
+            "The supplied title exactly matches the database title."
+        )
+
+    if match_type == "FORMATTING_NORMALIZED":
+        return (
+            "The supplied title matches the database title after "
+            "normalizing formatting and text-extraction artifacts."
+        )
+
+    if match_type == "MINOR_DIFFERENCE":
+        return (
+            "The supplied title has minor textual differences "
+            "from the database title."
+        )
+
+    if match_type == "SUBSTANTIVE_DIFFERENCE":
+        return (
+            "The supplied title differs substantively from the "
+            "database title."
+        )
+
+    return (
+        "The title comparison could not be classified."
+    )
+
+
+def _verified_reason(
+    prefix: str,
+    title_comparison: Optional[Dict[str, Any]],
+) -> str:
+    """
+    Construct a useful verification explanation.
+    """
+
+    title_note = _title_explanation(
+        title_comparison
+    )
+
+    return (
+        prefix
+        + " "
+        + title_note
+    )
+
+
 def classify(
     citation: CitationMetadata,
     candidate: Optional[CandidatePaper],
@@ -120,6 +233,15 @@ def classify(
         }
 
     # ========================================================
+    # Title comparison
+    # ========================================================
+
+    title_comparison = _title_comparison(
+        citation,
+        candidate,
+    )
+
+    # ========================================================
     # Exact DOI identity anchor
     # ========================================================
 
@@ -147,10 +269,12 @@ def classify(
 
         return {
             "status": "VERIFIED",
-            "reason": (
-                "The supplied DOI exactly identifies the matched "
-                "publication, and the supplied bibliographic metadata "
-                "is consistent with the database metadata."
+            "reason": _verified_reason(
+                (
+                    "The supplied DOI exactly identifies the "
+                    "matched publication."
+                ),
+                title_comparison,
             ),
         }
 
@@ -204,7 +328,10 @@ def classify(
 
     if strong_title_author:
 
+        # ----------------------------------------------------
         # Supplied DOI exists but points somewhere else.
+        # ----------------------------------------------------
+
         if (
             citation.doi
             and candidate.doi
@@ -240,11 +367,13 @@ def classify(
 
         return {
             "status": "VERIFIED",
-            "reason": (
-                "A strong corresponding publication was identified "
-                "using the title and author information, and the "
-                "supplied bibliographic metadata is consistent with "
-                "the database metadata."
+            "reason": _verified_reason(
+                (
+                    "A strong corresponding publication was "
+                    "identified using the title and author "
+                    "information."
+                ),
+                title_comparison,
             ),
         }
 
@@ -254,7 +383,10 @@ def classify(
 
     if strong_title:
 
+        # ----------------------------------------------------
         # Wrong DOI but very strong title.
+        # ----------------------------------------------------
+
         if (
             citation.doi
             and candidate.doi
@@ -289,10 +421,12 @@ def classify(
 
         return {
             "status": "VERIFIED",
-            "reason": (
-                "A publication with a strongly matching title was "
-                "found and the available bibliographic metadata is "
-                "consistent with the database record."
+            "reason": _verified_reason(
+                (
+                    "A publication with a strongly matching title "
+                    "was found."
+                ),
+                title_comparison,
             ),
         }
 

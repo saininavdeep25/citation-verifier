@@ -31,6 +31,13 @@ MAX_CANDIDATES_PER_QUERY = int(
 # Candidate ranking weights
 # ============================================================
 
+# Candidate ranking weights
+TITLE_WEIGHT = 0.45
+AUTHOR_WEIGHT = 0.30
+VENUE_WEIGHT = 0.10
+YEAR_WEIGHT = 0.05
+DOI_WEIGHT = 0.10
+
 WEIGHTS = {
     "title": 0.45,
     "author": 0.30,

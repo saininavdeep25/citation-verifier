@@ -1,6 +1,5 @@
+from difflib import SequenceMatcher
 from typing import List
-
-from rapidfuzz import fuzz
 
 from utils.normalization import (
     author_surname,
@@ -8,90 +7,131 @@ from utils.normalization import (
 )
 
 
-def _author_match_score(a: str, b: str) -> float:
+def _name_similarity(
+    citation_name: str,
+    database_name: str,
+) -> float:
     """
-    Compare two individual authors.
+    Compare two author names.
 
-    Examples:
-        "He, K." vs "Kaiming He"
-        "Vaswani, A." vs "Ashish Vaswani"
+    Surname agreement is given strong importance because
+    academic databases frequently represent authors differently,
+    e.g.:
 
-    should score very highly.
+        "He, K."
+        "Kaiming He"
+
+    A matching surname should therefore count as a strong match
+    even when initials/full names differ.
     """
 
-    surname_a = author_surname(a)
-    surname_b = author_surname(b)
+    citation_normalized = normalize_author_name(citation_name)
+    database_normalized = normalize_author_name(database_name)
 
-    if not surname_a or not surname_b:
+    if not citation_normalized or not database_normalized:
         return 0.0
 
-    surname_score = fuzz.ratio(
-        surname_a,
-        surname_b,
-    ) / 100.0
+    # Exact normalized name
+    if citation_normalized == database_normalized:
+        return 1.0
 
-    normalized_a = normalize_author_name(a)
-    normalized_b = normalize_author_name(b)
+    citation_surname = author_surname(citation_name)
+    database_surname = author_surname(database_name)
 
-    full_score = fuzz.token_set_ratio(
-        normalized_a,
-        normalized_b,
-    ) / 100.0
+    # Strong match when surnames are identical.
+    if (
+        citation_surname
+        and database_surname
+        and citation_surname == database_surname
+    ):
+        full_name_score = SequenceMatcher(
+            None,
+            citation_normalized,
+            database_normalized,
+        ).ratio()
 
-    # Surname agreement is the strongest signal.
-    return 0.75 * surname_score + 0.25 * full_score
+        # Surname is the primary identity signal.
+        return (
+            0.85 * 1.0
+            + 0.15 * full_name_score
+        )
+
+    # Different surnames: ordinary fuzzy comparison.
+    return SequenceMatcher(
+        None,
+        citation_normalized,
+        database_normalized,
+    ).ratio()
 
 
 def author_similarity(
-    input_authors: List[str],
-    candidate_authors: List[str],
+    citation_authors: List[str],
+    database_authors: List[str],
 ) -> float:
-    if not input_authors or not candidate_authors:
+    """
+    Calculate similarity between two author lists.
+
+    The first author receives 50% of the total weight because
+    first-author identity is particularly informative for
+    publication matching.
+
+    Remaining authors share the other 50%.
+    """
+
+    if not citation_authors or not database_authors:
         return 0.0
 
-    input_authors = [
-        a for a in input_authors
-        if a and normalize_author_name(a)
-    ]
+    # Work on copies so the caller's lists are never modified.
+    citation = list(citation_authors)
+    database = list(database_authors)
 
-    candidate_authors = [
-        a for a in candidate_authors
-        if a and normalize_author_name(a)
-    ]
+    # Match each citation author to the best unused database author.
+    used = set()
+    scores = []
 
-    if not input_authors or not candidate_authors:
-        return 0.0
+    for citation_author in citation:
 
-    # First author is particularly important.
-    first_score = _author_match_score(
-        input_authors[0],
-        candidate_authors[0],
-    )
+        best_score = 0.0
+        best_index = None
 
-    # For each cited author, find the best candidate-author match.
-    individual_scores = []
+        for index, database_author in enumerate(database):
 
-    for input_author in input_authors:
-        best = max(
-            _author_match_score(
-                input_author,
-                candidate_author,
+            if index in used:
+                continue
+
+            score = _name_similarity(
+                citation_author,
+                database_author,
             )
-            for candidate_author in candidate_authors
-        )
 
-        individual_scores.append(best)
+            if score > best_score:
+                best_score = score
+                best_index = index
 
-    average_score = (
-        sum(individual_scores)
-        / len(individual_scores)
+        if best_index is not None:
+            used.add(best_index)
+
+        scores.append(best_score)
+
+    if not scores:
+        return 0.0
+
+    # Single-author citation.
+    if len(scores) == 1:
+        return scores[0]
+
+    # First author = 50%.
+    first_author_score = scores[0]
+
+    # Remaining authors = 50%.
+    remaining_scores = scores[1:]
+    remaining_average = (
+        sum(remaining_scores) / len(remaining_scores)
+        if remaining_scores
+        else 0.0
     )
 
-    # If citation uses et al. or only a partial list, do not demand
-    # that every database author appear in the citation.
-    score = (
-        0.55 * first_score
-        + 0.45 * average_score
+    return (
+        0.50 * first_author_score
+        + 0.50 * remaining_average
     )
-
-    return min(1.0, score)

@@ -1,166 +1,253 @@
 from typing import List
 
-from config import WEIGHTS
+from config import (
+    TITLE_WEIGHT,
+    AUTHOR_WEIGHT,
+    VENUE_WEIGHT,
+    YEAR_WEIGHT,
+    DOI_WEIGHT,
+)
 from models.schemas import CandidatePaper, CitationMetadata
+from matching.title_similarity import (
+    title_similarity,
+    title_match_details,
+)
 from matching.author_similarity import author_similarity
-from matching.title_similarity import title_similarity
 from matching.venue_similarity import venue_similarity
 from utils.normalization import normalize_doi
 
 
-def year_similarity(
-    input_year,
+def _year_similarity(
+    citation_year,
     candidate_year,
-):
-    if input_year is None or candidate_year is None:
-        return None
+) -> float:
+    """
+    Compare publication years.
 
-    try:
-        return (
-            1.0
-            if int(input_year) == int(candidate_year)
-            else 0.0
-        )
-    except (TypeError, ValueError):
-        return None
+    Returns:
+        1.0  -> exact match
+        0.0  -> mismatch
+        0.0  -> unavailable comparison
+    """
+
+    if citation_year is None or candidate_year is None:
+        return 0.0
+
+    return 1.0 if citation_year == candidate_year else 0.0
 
 
-def doi_similarity(
-    input_doi,
+def _doi_similarity(
+    citation_doi,
     candidate_doi,
-):
-    a = normalize_doi(input_doi)
-    b = normalize_doi(candidate_doi)
+) -> float:
+    """
+    Compare normalized DOIs.
 
-    if not a or not b:
-        return None
+    Returns:
+        1.0 -> exact DOI match
+        0.0 -> mismatch or unavailable
+    """
 
-    return 1.0 if a == b else 0.0
+    input_doi = normalize_doi(citation_doi)
+    candidate_doi = normalize_doi(candidate_doi)
+
+    if not input_doi or not candidate_doi:
+        return 0.0
+
+    return 1.0 if input_doi == candidate_doi else 0.0
 
 
-def score_candidate(
+def _weighted_score(
+    scores,
+    available_fields,
+) -> float:
+    """
+    Calculate a weighted candidate score using only fields
+    for which both the citation and candidate contain data.
+
+    This is important because missing metadata should not
+    automatically count as negative evidence.
+    """
+
+    weights = {
+        "title": TITLE_WEIGHT,
+        "author": AUTHOR_WEIGHT,
+        "venue": VENUE_WEIGHT,
+        "year": YEAR_WEIGHT,
+        "doi": DOI_WEIGHT,
+    }
+
+    numerator = 0.0
+    denominator = 0.0
+
+    for field in available_fields:
+        weight = weights[field]
+
+        numerator += scores[field] * weight
+        denominator += weight
+
+    if denominator == 0.0:
+        return 0.0
+
+    return numerator / denominator
+
+
+def _get_available_fields(
     citation: CitationMetadata,
     candidate: CandidatePaper,
-) -> CandidatePaper:
-
-    # -------------------------
-    # Individual field scores
-    # -------------------------
-
-    candidate.title_similarity = (
-        title_similarity(
-            citation.title or "",
-            candidate.title or "",
-        )
-    )
-
-    candidate.author_similarity = (
-        author_similarity(
-            citation.authors,
-            candidate.authors,
-        )
-        if citation.authors and candidate.authors
-        else 0.0
-    )
-
-    candidate.venue_similarity = (
-        venue_similarity(
-            citation.venue or "",
-            candidate.venue or "",
-        )
-        if citation.venue and candidate.venue
-        else 0.0
-    )
-
-    candidate.year_similarity = (
-        year_similarity(
-            citation.year,
-            candidate.year,
-        )
-        or 0.0
-    )
-
-    candidate.doi_similarity = (
-        doi_similarity(
-            citation.doi,
-            candidate.doi,
-        )
-        or 0.0
-    )
-
-    # -------------------------
-    # Identity anchor
-    # -------------------------
-
-    normalized_input_doi = normalize_doi(
-        citation.doi
-    )
-
-    normalized_candidate_doi = normalize_doi(
-        candidate.doi
-    )
-
-    # Exact DOI is the strongest possible identity signal.
-    if (
-        normalized_input_doi
-        and normalized_candidate_doi
-        and normalized_input_doi
-        == normalized_candidate_doi
-    ):
-        candidate.candidate_score = 1.0
-        return candidate
-
-    # -------------------------
-    # Weighted score
-    # -------------------------
+) -> List[str]:
+    """
+    Determine which metadata fields can actually be compared.
+    """
 
     available_fields = []
 
     if citation.title and candidate.title:
-        available_fields.append(
-            ("title", candidate.title_similarity)
-        )
+        available_fields.append("title")
 
     if citation.authors and candidate.authors:
-        available_fields.append(
-            ("author", candidate.author_similarity)
-        )
+        available_fields.append("author")
 
     if citation.venue and candidate.venue:
-        available_fields.append(
-            ("venue", candidate.venue_similarity)
-        )
+        available_fields.append("venue")
 
-    if citation.year is not None and candidate.year is not None:
-        available_fields.append(
-            ("year", candidate.year_similarity)
-        )
+    if (
+        citation.year is not None
+        and candidate.year is not None
+    ):
+        available_fields.append("year")
 
     if citation.doi and candidate.doi:
-        available_fields.append(
-            ("doi", candidate.doi_similarity)
+        available_fields.append("doi")
+
+    return available_fields
+
+
+def rank_candidate(
+    citation: CitationMetadata,
+    candidate: CandidatePaper,
+) -> CandidatePaper:
+    """
+    Calculate field-level similarity scores and the final
+    candidate score for a single candidate.
+
+    The CandidatePaper object is updated in place and returned.
+    """
+
+    # --------------------------------------------------------
+    # Title
+    # --------------------------------------------------------
+
+    if citation.title and candidate.title:
+
+        candidate.title_similarity = title_similarity(
+            citation.title,
+            candidate.title,
         )
 
-    if not available_fields:
-        candidate.candidate_score = 0.0
-        return candidate
+        title_details = title_match_details(
+            citation.title,
+            candidate.title,
+        )
 
-    total_weight = sum(
-        WEIGHTS[field]
-        for field, _ in available_fields
+    else:
+
+        candidate.title_similarity = 0.0
+
+        title_details = {
+            "raw_similarity": 0.0,
+            "normalized_similarity": 0.0,
+            "match_type": "NO_COMPARISON",
+        }
+
+    # --------------------------------------------------------
+    # Authors
+    # --------------------------------------------------------
+
+    if citation.authors and candidate.authors:
+
+        candidate.author_similarity = author_similarity(
+            citation.authors,
+            candidate.authors,
+        )
+
+    else:
+
+        candidate.author_similarity = 0.0
+
+    # --------------------------------------------------------
+    # Venue
+    # --------------------------------------------------------
+
+    if citation.venue and candidate.venue:
+
+        candidate.venue_similarity = venue_similarity(
+            citation.venue,
+            candidate.venue,
+        )
+
+    else:
+
+        candidate.venue_similarity = 0.0
+
+    # --------------------------------------------------------
+    # Year
+    # --------------------------------------------------------
+
+    year_score = _year_similarity(
+        citation.year,
+        candidate.year,
     )
 
-    weighted_score = sum(
-        WEIGHTS[field] * score
-        for field, score in available_fields
+    # --------------------------------------------------------
+    # DOI
+    # --------------------------------------------------------
+
+    doi_score = _doi_similarity(
+        citation.doi,
+        candidate.doi,
     )
 
-    # Normalize over fields that actually exist.
-    candidate.candidate_score = (
-        weighted_score / total_weight
-        if total_weight > 0
-        else 0.0
+    # --------------------------------------------------------
+    # Field scores
+    # --------------------------------------------------------
+
+    scores = {
+        "title": candidate.title_similarity,
+        "author": candidate.author_similarity,
+        "venue": candidate.venue_similarity,
+        "year": year_score,
+        "doi": doi_score,
+    }
+
+    # --------------------------------------------------------
+    # Fields that can actually be compared
+    # --------------------------------------------------------
+
+    available_fields = _get_available_fields(
+        citation,
+        candidate,
     )
+
+    # --------------------------------------------------------
+    # Weighted candidate score
+    # --------------------------------------------------------
+
+    candidate.candidate_score = _weighted_score(
+        scores,
+        available_fields,
+    )
+
+    # --------------------------------------------------------
+    # Preserve title comparison details
+    #
+    # CandidatePaper may not currently have a dedicated
+    # title_match field. Therefore this information is not
+    # stored directly on the model here.
+    #
+    # The classifier independently calculates the same
+    # title comparison when making the final decision.
+    # --------------------------------------------------------
 
     return candidate
 
@@ -169,14 +256,28 @@ def rank_candidates(
     citation: CitationMetadata,
     candidates: List[CandidatePaper],
 ) -> List[CandidatePaper]:
+    """
+    Rank all candidates for a citation.
 
-    scored = [
-        score_candidate(citation, candidate)
-        for candidate in candidates
-    ]
+    Returns candidates sorted from strongest to weakest.
+    """
 
-    return sorted(
-        scored,
-        key=lambda c: c.candidate_score,
+    ranked_candidates = []
+
+    for candidate in candidates:
+
+        ranked_candidate = rank_candidate(
+            citation,
+            candidate,
+        )
+
+        ranked_candidates.append(
+            ranked_candidate
+        )
+
+    ranked_candidates.sort(
+        key=lambda candidate: candidate.candidate_score,
         reverse=True,
     )
+
+    return ranked_candidates
