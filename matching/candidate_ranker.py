@@ -198,6 +198,7 @@ def rank_candidate(
         citation.year,
         candidate.year,
     )
+    candidate.year_similarity = year_score
 
     # --------------------------------------------------------
     # DOI
@@ -207,6 +208,7 @@ def rank_candidate(
         citation.doi,
         candidate.doi,
     )
+    candidate.doi_similarity = doi_score
 
     # --------------------------------------------------------
     # Field scores

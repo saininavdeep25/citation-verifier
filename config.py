@@ -83,13 +83,6 @@ AMBIGUITY_MARGIN = float(
     )
 )
 
-VERIFIED_THRESHOLD = float(
-    os.getenv(
-        "VERIFIED_THRESHOLD",
-        "0.90",
-    )
-)
-
 UNCERTAIN_THRESHOLD = float(
     os.getenv(
         "UNCERTAIN_THRESHOLD",

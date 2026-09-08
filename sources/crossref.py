@@ -134,6 +134,18 @@ class CrossrefSource(ScholarlySource):
                     time.sleep(delay)
                     continue
 
+                if response.status_code == 404:
+                    # A missing work will not become available by retrying.
+                    try:
+                        response.raise_for_status()
+                    except requests.HTTPError as exc:
+                        self.last_error = str(exc)
+                        logger.error(
+                            "Crossref request failed: %s",
+                            exc,
+                        )
+                    return None
+
                 response.raise_for_status()
 
             except requests.RequestException as exc:
