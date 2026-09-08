@@ -6,6 +6,8 @@ from matching.title_similarity import (
     title_match_details,
 )
 from matching.venue_similarity import venue_similarity
+from matching.candidate_ranker import rank_candidate
+from models.schemas import CandidatePaper, CitationMetadata
 from utils.normalization import (
     normalize_doi,
     normalize_title,
@@ -335,6 +337,35 @@ class TestVenueSimilarity(unittest.TestCase):
             score,
             0.90,
         )
+
+
+class TestCandidateRanking(unittest.TestCase):
+
+    def test_year_and_doi_similarities_are_saved_on_candidate(self):
+        citation = CitationMetadata(
+            title="A Test Paper",
+            year=2024,
+            doi="10.1000/test",
+        )
+        candidate = CandidatePaper(
+            source="test",
+            source_id="test-1",
+            title="A Test Paper",
+            authors=[],
+            year=2024,
+            venue=None,
+            doi="https://doi.org/10.1000/test",
+            volume=None,
+            issue=None,
+            pages=None,
+            url=None,
+            retrieval_method="test",
+        )
+
+        rank_candidate(citation, candidate)
+
+        self.assertEqual(candidate.year_similarity, 1.0)
+        self.assertEqual(candidate.doi_similarity, 1.0)
 
 
 class TestNormalization(unittest.TestCase):

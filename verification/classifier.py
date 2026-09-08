@@ -5,6 +5,7 @@ from config import (
     STRONG_AUTHOR_THRESHOLD,
     STRONG_TITLE_ONLY_THRESHOLD,
     STRONG_TITLE_THRESHOLD,
+    UNCERTAIN_THRESHOLD,
 )
 from models.schemas import CandidatePaper, CitationMetadata
 from matching.title_similarity import title_match_details
@@ -434,7 +435,7 @@ def classify(
     # Moderate candidate
     # ========================================================
 
-    if candidate.candidate_score >= 0.60:
+    if candidate.candidate_score >= UNCERTAIN_THRESHOLD:
         return {
             "status": "UNCERTAIN",
             "reason": (

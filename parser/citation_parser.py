@@ -423,7 +423,7 @@ def parse_citation(citation: str) -> CitationMetadata:
     )
 
     im = re.search(
-        r"\b(?:no\.?|issue)\s*([A-Za-z0-9-]+)",
+        r"\b(?:no\.?|issue)\b\s*([A-Za-z0-9-]+)",
         citation,
         re.I,
     )

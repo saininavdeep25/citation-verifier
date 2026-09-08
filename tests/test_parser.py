@@ -117,6 +117,15 @@ class TestParser(unittest.TestCase):
             "10.1038/nature14539",
         )
 
+    def test_no_false_issue_from_de_novo_title(self):
+
+        c = parse_citation(
+            "Sohn, J., & Nam, J. (2016). The present and future of de novo "
+            "whole-genome assembly. Briefings in Bioinformatics."
+        )
+
+        self.assertIsNone(c.issue)
+
 
 if __name__ == "__main__":
     unittest.main()
